@@ -8,6 +8,11 @@
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 #define OLED_RESET -1
+#define LED_PIN 13  // LED rojo en pin 13 (tiene protección interna)
+#define SIGNAL_GAIN 15  // Aumentado para mayor respuesta al hablar
+#define LED_THRESHOLD 8000000  // Umbral más alto para sonidos fuertes
+#define LED_MIN_THRESHOLD 200000  // Umbral mínimo para evitar ruido de fondo
+#define MAX_SAMPLE_THRESHOLD 1000000  // Umbral para detectar picos de sonido
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 #define I2S_WS 25
@@ -23,10 +28,9 @@ int32_t sampleBuffer[SAMPLES];
 double vReal[SAMPLES];
 double vImag[SAMPLES];
 
-#define SIGNAL_GAIN 15  // Aumentado para mayor respuesta al hablar
-
 void setup() {
   Serial.begin(115200);
+  pinMode(LED_PIN, OUTPUT);  // Configurar el LED como salida
 
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
     Serial.println(F("Error al iniciar OLED"));
@@ -63,11 +67,25 @@ void setup() {
 void loop() {
   size_t bytesRead = 0;
   if (i2s_read(I2S_PORT, sampleBuffer, sizeof(sampleBuffer), &bytesRead, 100) == ESP_OK && bytesRead > 0) {
+    // Calcular el promedio y máximo de la magnitud del audio
+    double totalMagnitude = 0;
+    double maxSample = 0;
     for (int i = 0; i < SAMPLES; i++) {
       int32_t sample = sampleBuffer[i] >> 8;
       sample *= SIGNAL_GAIN;
       vReal[i] = (double)sample;
       vImag[i] = 0.0;
+      totalMagnitude += abs(sample);
+      maxSample = max(maxSample, (double)abs(sample));
+    }
+    
+    // Encender el LED solo cuando hay sonido fuerte y cercano
+    if (totalMagnitude > LED_THRESHOLD && 
+        totalMagnitude > LED_MIN_THRESHOLD && 
+        maxSample > MAX_SAMPLE_THRESHOLD) {
+      digitalWrite(LED_PIN, HIGH);
+    } else {
+      digitalWrite(LED_PIN, LOW);
     }
 
     FFT.windowing(vReal, SAMPLES, FFT_WIN_TYP_HAMMING, FFT_FORWARD);
